@@ -7,3 +7,6 @@
 backend/.Renviron
 *.pyc
 .venv/
+
+# fichiers de verrouillage Office (deck ouvert dans PowerPoint)
+~$*
