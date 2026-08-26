@@ -138,7 +138,16 @@ mod_delays_ui <- function(id) {
           class = "mt-3",
           bslib::card_header("Retard rattrapé en vol"),
           bslib::card_body(
-            hint("Vols partis avec au moins 1 h de retard et ayant regagné 30 min ou plus, classés par gain horaire."),
+            hint(paste(
+              "Vols partis avec au moins 1 h de retard et arrivés avec moins de retard",
+              "qu'au départ, classés par minutes regagnées par heure de vol."
+            )),
+            hint(shiny::HTML(
+              "Reconstitué à partir de <code>/flights</code> : l'endpoint
+               <code>/delays/gain</code> filtre sur <code>arr_delay - dep_delay</code>,
+               ce qui sélectionne les vols dont le retard <em>s'aggrave</em> en vol
+               et non ceux qui le rattrapent."
+            )),
             DT::DTOutput(ns("table_gain"))
           )
         )
@@ -366,18 +375,34 @@ mod_delays_server <- function(id) {
       adp_table(out, page_length = 10)
     })
 
+    # /delays/gain calcule (arr_delay - dep_delay) : il remonte les vols dont le
+    # retard s'aggrave, pas ceux qui le rattrapent. On reconstruit la vraie
+    # population : parmi les vols partis avec >= 1 h de retard, ceux dont le
+    # retard à l'arrivée est le plus faible.
     output$table_gain <- DT::renderDT({
-      df <- api_df("/delays/gain", list(limit = 30))
+      page <- api_paginated("/flights", list(
+        page = 1, limit = 300, min_dep_delay = 60,
+        sort_by = "arr_delay", sort_dir = "asc"
+      ))
+      df <- page$data
       need_rows(df)
+      df$rattrapage <- df$dep_delay - df$arr_delay
+      df <- df[!is.na(df$rattrapage) & df$rattrapage > 0 &
+                 !is.na(df$air_time) & df$air_time > 0, , drop = FALSE]
+      need_rows(df, "Aucun vol n'a rattrapé de retard sur cette sélection.")
+      df$par_heure <- df$rattrapage / (df$air_time / 60)
+      df <- utils::head(df[order(-df$par_heure), , drop = FALSE], 30)
+
       out <- data.frame(
+        Date = date_label(df),
         Compagnie = df$carrier,
         `N° vol` = fmt_int(df$flight),
         Trajet = paste(df$origin, "→", df$dest),
         `Retard départ` = fmt_signed_min(df$dep_delay, 0),
         `Retard arrivée` = fmt_signed_min(df$arr_delay, 0),
         `Temps de vol` = fmt_min(df$air_time, 0),
-        `Gain` = fmt_signed_min(df$gain, 0),
-        `Gain / heure de vol` = fmt_signed_min(df$gain_per_hour, 1),
+        `Minutes rattrapées` = fmt_num(df$rattrapage, 0),
+        `Rattrapage / h de vol` = fmt_num(df$par_heure, 1),
         check.names = FALSE
       )
       adp_table(out, page_length = 10)
