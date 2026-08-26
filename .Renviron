@@ -1,0 +1,5 @@
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=trafic_aerien_adp
+DB_USER=adp_user
+DB_PASS=TestSimple123
