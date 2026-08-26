@@ -25,8 +25,11 @@ Stack : **MySQL 8** + **API REST Plumber (R)** + dashboard **Shiny** (équipe fr
 
 ```r
 install.packages(c(
+  # données + base + API
   "plumber", "DBI", "RMariaDB", "jsonlite",
-  "readxl", "rvest", "pdftools", "dplyr", "tidyr", "stringr"
+  "readxl", "rvest", "pdftools", "dplyr", "tidyr", "stringr",
+  # dashboard Shiny
+  "shiny", "bslib", "plotly", "DT", "httr2"
 ))
 ```
 
@@ -100,6 +103,25 @@ cd backend
 - Swagger : http://127.0.0.1:8000/__docs__/  
 - Santé : http://127.0.0.1:8000/health  
 
+### 4. Dashboard Shiny
+
+Dans un second terminal, l'API restant lancée :
+
+```bash
+Rscript frontend/run_app.R
+```
+
+```powershell
+& "C:\Program Files\R\R-4.6.1\bin\x64\Rscript.exe" frontend/run_app.R
+```
+
+- Dashboard : http://127.0.0.1:3838
+
+Le dashboard n'ouvre aucune connexion MySQL : il ne consomme que l'API. Pour
+l'interroger ailleurs que sur la machine locale :
+`API_BASE_URL=http://<hote>:8000 Rscript frontend/run_app.R`.
+Détail des onglets et dépannage : [`frontend/README.md`](frontend/README.md).
+
 ## API — endpoints principaux
 
 | Méthode | Route | Rôle |
@@ -137,13 +159,20 @@ trafic-aerien-adp/
 │   ├── flights.xlsx
 │   ├── planes.html
 │   └── weather.pdf
-└── backend/
-    ├── run.R                  # Démarre Plumber
-    ├── plumber.R              # Routes REST
-    ├── test_connection.R
+├── backend/
+│   ├── run.R                  # Démarre Plumber
+│   ├── plumber.R              # Routes REST
+│   ├── test_connection.R
+│   └── R/
+│       ├── database.R         # Connexion RMariaDB
+│       └── utils.R            # Pagination, validation, erreurs
+└── frontend/
+    ├── run_app.R              # Démarre le dashboard (port 3838)
+    ├── app.R                  # Barre de navigation + assemblage des onglets
     └── R/
-        ├── database.R         # Connexion RMariaDB
-        └── utils.R            # Pagination, validation, erreurs
+        ├── api.R              # Client HTTP de l'API + normalisation JSON
+        ├── utils_ui.R         # Thème bslib, palette, formatage FR
+        └── mod_*.R            # Un module Shiny par onglet
 ```
 
 ## Répartition des rôles
@@ -159,5 +188,11 @@ trafic-aerien-adp/
 ## Dépannage
 
 - **Port 3306 occupé** : arrêter un MySQL local, ou changer le mapping dans `docker-compose.yml`.
+  Un MySQL déjà installé sur la machine capte `127.0.0.1:3306` avant le conteneur :
+  soit on l'arrête, soit on y crée directement la base `trafic_aerien_adp` et
+  l'utilisateur `adp_user`.
+- **Port 3838 occupé** : `SHINY_PORT=3839 Rscript frontend/run_app.R`.
+- **Dashboard affichant « API injoignable »** : le backend n'est pas lancé, ou
+  `API_BASE_URL` pointe ailleurs.
 - **Packages R en lecture seule** : installer dans la lib utilisateur (`AppData/Local/R/win-library/...`).
 - **RMySQL / MySQL 8** : le backend utilise **RMariaDB** (plus fiable que `RMySQL` avec l’auth `caching_sha2`).
