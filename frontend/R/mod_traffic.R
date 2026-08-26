@@ -32,7 +32,7 @@ mod_traffic_ui <- function(id) {
             selected = "total", inline = TRUE
           ),
           shiny::uiOutput(ns("monthly_note")),
-          plotly::plotlyOutput(ns("plot_monthly"), height = "320px")
+          plotly::plotlyOutput(ns("plot_monthly"), height = "340px")
         )
       ),
       bslib::card(
@@ -150,32 +150,62 @@ mod_traffic_server <- function(id) {
       par_jour <- identical(input$mode, "par_jour")
       df$valeur <- if (par_jour) df$flight_count / df$jours else df$flight_count
 
-      p <- plotly::plot_ly()
-      for (o in unique(df$origin)) {
+      # Une facette par aéroport, chacune avec sa propre moyenne mensuelle :
+      # c'est la comparaison demandée par l'énoncé (Mission 2, §3.1 Q2).
+      origines <- sort(unique(df$origin))
+      axe_x <- list(tickmode = "array", tickvals = seq(1, 12, 2),
+                    ticktext = MONTHS_FR[seq(1, 12, 2)], gridcolor = ADP$grid,
+                    tickangle = -45)
+
+      facettes <- lapply(seq_along(origines), function(i) {
+        o <- origines[i]
         d <- complete_months(df[df$origin == o, , drop = FALSE])
+        # La moyenne ne porte que sur les mois complets : inclure juillet et ses
+        # 3 jours la tirerait vers le bas d'environ 9 %.
+        ref <- d$valeur[!is.na(d$valeur) & !is.na(d$complet) & d$complet]
+        moy <- if (length(ref)) mean(ref) else mean(d$valeur, na.rm = TRUE)
         # point creux = mois incomplet, pour qu'un total partiel ne se lise pas
         # comme une chute du trafic
         symboles <- ifelse(is.na(d$complet) | d$complet, "circle", "circle-open")
-        p <- plotly::add_trace(
-          p, x = d$month, y = d$valeur, name = o,
-          type = "scatter", mode = "lines+markers", connectgaps = FALSE,
-          line = list(color = origin_color(o), width = 2.5),
-          marker = list(color = origin_color(o), size = 8, symbol = symboles,
-                        line = list(color = origin_color(o), width = 2)),
-          customdata = d$jours,
-          hovertemplate = paste0(
-            "<b>", o, "</b> — %{x}<br>",
-            if (par_jour) "%{y:,.0f} vols/jour" else "%{y:,} vols",
-            "<br>%{customdata} jours de données<extra></extra>")
+
+        plotly::plot_ly() |>
+          plotly::add_trace(
+            x = d$month, y = d$valeur, name = o,
+            type = "scatter", mode = "lines+markers", connectgaps = FALSE,
+            line = list(color = origin_color(o), width = 2.5),
+            marker = list(color = origin_color(o), size = 7, symbol = symboles,
+                          line = list(color = origin_color(o), width = 2)),
+            customdata = d$jours, legendgroup = o, showlegend = FALSE,
+            hovertemplate = paste0(
+              "<b>", o, "</b> — %{x}<br>",
+              if (par_jour) "%{y:,.0f} vols/jour" else "%{y:,} vols",
+              "<br>%{customdata} jours de données<extra></extra>")
+          ) |>
+          plotly::add_trace(
+            x = 1:12, y = rep(moy, 12), type = "scatter", mode = "lines",
+            name = "Moyenne de l'aéroport", legendgroup = "moyenne",
+            showlegend = i == 1,
+            line = list(color = ADP$slate, dash = "dash", width = 1.6),
+            hovertemplate = paste0("Moyenne ", o, " : %{y:,.0f}<extra></extra>")
+          ) |>
+          plotly::layout(
+            xaxis = axe_x,
+            annotations = list(list(
+              text = sprintf("<b>%s</b>  —  moyenne %s", o,
+                             if (par_jour) fmt_num(moy, 0) else fmt_int(round(moy))),
+              x = 0.5, y = 1.06, xref = "paper", yref = "paper",
+              showarrow = FALSE, font = list(size = 12, color = ADP$ink)
+            ))
+          )
+      })
+
+      plotly::subplot(facettes, nrows = 1, shareY = TRUE, titleX = FALSE,
+                      margin = 0.025) |>
+        adp_plotly(y_title = if (par_jour) "Vols par jour observé" else "Nombre de vols") |>
+        plotly::layout(
+          margin = list(l = 70, r = 10, t = 34, b = 70),
+          legend = list(orientation = "h", y = -0.28, x = 0)
         )
-      }
-      p |>
-        adp_plotly(x_title = "Mois",
-                   y_title = if (par_jour) "Vols par jour observé" else "Nombre de vols") |>
-        plotly::layout(xaxis = list(
-          tickmode = "array", tickvals = 1:12, ticktext = MONTHS_FR,
-          gridcolor = ADP$grid
-        ))
     })
 
     # L'API calcule la croissance avec un LAG sur les lignes présentes : octobre

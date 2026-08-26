@@ -54,11 +54,12 @@ API_BASE_URL=http://192.168.1.20:8000 Rscript frontend/run_app.R
 |--------|---------|-----------|
 | **Vue d'ensemble** | KPI de volumétrie et de retard, répartition par aéroport, top destinations, semaine vs week-end, lignes les plus fréquentées | `/stats/overview`, `/delays/summary`, `/traffic/top-airports`, `/traffic/weekday-vs-weekend`, `/routes/top` |
 | **Trafic** | Saisonnalité mensuelle par aéroport, croissance d'un mois sur l'autre, courbe journalière, zoom par période, jours fériés vs moyenne | `/traffic/monthly`, `/traffic/daily`, `/traffic/by-period`, `/traffic/special-days-vs-average` |
-| **Retards** | Synthèse (journalier, par heure, avance/retard), fiabilité des compagnies, aéroports et destinations, distance vs retard, vols extrêmes et rattrapage en vol | `/delays/*`, `/flights/most-delayed` |
+| **Retards** | Synthèse (journalier, par heure, avance/retard), fiabilité des compagnies, aéroports et destinations, distance vs retard, vitesse et types de courrier, vols extrêmes et rattrapage en vol | `/delays/*`, `/flights`, `/flights/most-delayed` |
 | **Annulations** | Taux d'annulation, saisonnalité, compagnies et destinations touchées, valeurs manquantes | `/cancellations`, `/cancellations/sorted` |
 | **Carte** | Réseau origine → destination sur fond de carte US, épaisseur proportionnelle au trafic | `/routes/map` |
 | **Météo** | Température, vent, précipitations et visibilité horaires par aéroport | `/weather` |
 | **Vols** | Explorateur filtré (compagnie, aéroports, date, retard, annulations) avec tri et pagination côté API | `/flights` |
+| **Prévisions** | Modèle saisonnier (tendance + mois + jour de la semaine + jours fériés), validation sur les 28 derniers jours face à une référence naïve, prévision à 7–90 jours | `/traffic/daily`, `/delays/daily` |
 | **Données & méthode** | Sources, conventions de lecture, schéma de la chaîne de traitement | — |
 
 ## Organisation du code
@@ -76,8 +77,33 @@ frontend/
     ├── mod_cancellations.R
     ├── mod_map.R
     ├── mod_weather.R
-    └── mod_flights.R
+    ├── mod_flights.R
+    └── mod_forecast.R       # modèle de prévision + validation
 ```
+
+### Le modèle de prévision
+
+`R/mod_forecast.R` ajuste une régression linéaire sur le logarithme du trafic
+journalier :
+
+```
+log(vols) ~ tendance + mois + jour de la semaine + jour férié + période des fêtes
+```
+
+Validation : le modèle est réajusté sans les 28 derniers jours connus, puis
+confronté à eux. La référence de comparaison répète la dernière semaine **connue**
+— reprendre « la valeur d'il y a sept jours » ferait piocher la référence dans la
+période de test dès le huitième jour.
+
+Résultat sur ce jeu : 63 vols d'erreur moyenne par jour (7,3 % en relatif),
+contre 159 pour la référence naïve.
+
+> **Attention au calendrier.** La colonne `year` de la base vaut 2021, mais le
+> rythme hebdomadaire ne correspond qu'à 2013 : sous ce calendrier le creux tombe
+> sur le samedi (741 vols/jour contre plus de 940 en semaine), alors qu'en 2021 il
+> tomberait un mardi. Cet onglet ramène donc les dates au calendrier 2013 et
+> l'affiche à l'écran. Sans cette correction, l'effet du samedi est attribué au
+> mardi et le modèle apprend un rythme faux.
 
 Deux points d'attention repris dans `R/api.R` :
 

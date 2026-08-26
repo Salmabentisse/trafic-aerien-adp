@@ -5,7 +5,7 @@
 #   Rscript presentation/figures.R
 # Les PNG sont écrits dans presentation/figures/.
 # ============================================================================
-suppressPackageStartupMessages({library(ggplot2); library(httr2); library(jsonlite)})
+suppressPackageStartupMessages({library(ggplot2); library(httr2); library(jsonlite); library(grid)})
 
 this_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 root <- if (length(this_file)) {
@@ -32,7 +32,7 @@ to_df <- function(recs) {
   as.data.frame(cols, stringsAsFactors = FALSE, check.names = FALSE)
 }
 
-NAVY <- "#0B3C5D"; BLUE <- "#1D8AC1"; RED <- "#E4572E"; TEAL <- "#2E9E6B"; SLATE <- "#5A6B7B"
+NAVY <- "#0B3C5D"; BLUE <- "#1D8AC1"; RED <- "#E4572E"; TEAL <- "#2E9E6B"; SLATE <- "#5A6B7B"; AMBER <- "#E8A33D"
 theme_adp <- function(base = 15) {
   theme_minimal(base_size = base, base_family = "Helvetica") +
     theme(
@@ -162,5 +162,133 @@ p5 <- ggplot(bm, aes(mois, cancelled_count, fill = cancelled_count)) +
        caption = "Source : API /cancellations — vol annulé = heure de départ et d'arrivée absentes") +
   theme_adp()
 save_fig(p5, "05_annulations_mensuelles.png")
+
+
+# --- 6. viz par facette demandée par l'énoncé (Mission 2, §3.1 Q2) ----------
+# On réutilise les helpers du dashboard pour que le support et l'application
+# racontent exactement la même chose.
+source(file.path(root, "frontend", "R", "mod_forecast.R"))
+
+MOIS_AB <- c("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+
+daily <- to_df(get_json("/traffic/daily?limit=366")$data)
+cov <- aggregate(list(jours = daily$day), by = list(month = daily$month),
+                 FUN = function(x) length(unique(x)))
+cov$attendus <- as.integer(format(
+  as.Date(sprintf("2013-%02d-01", cov$month)) + 31 -
+    as.integer(format(as.Date(sprintf("2013-%02d-01", cov$month)) + 31, "%d")), "%d"))
+cov$attendus <- vapply(cov$month, function(m) {
+  deb <- as.Date(sprintf("2013-%02d-01", m))
+  as.integer(format(seq(deb, by = "month", length.out = 2)[2] - 1, "%d"))
+}, integer(1))
+cov$complet <- cov$jours >= cov$attendus
+
+mens <- to_df(get_json("/traffic/monthly")$monthly)
+mens <- merge(mens, cov[, c("month", "jours", "complet")], by = "month", all.x = TRUE)
+moyennes <- aggregate(flight_count ~ origin,
+                      data = mens[mens$complet, , drop = FALSE], FUN = mean)
+names(moyennes)[2] <- "moyenne"
+mens <- merge(mens, moyennes, by = "origin")
+
+# Le nombre de vols est ramené au jour observé, comme le suggère l'indice de
+# l'énoncé : sinon février (28 jours) et juillet (3 jours de données) ne sont
+# pas comparables aux autres mois.
+mens$par_jour <- mens$flight_count / mens$jours
+moyennes <- aggregate(par_jour ~ origin,
+                      data = mens[mens$complet, , drop = FALSE], FUN = mean)
+names(moyennes)[2] <- "moyenne"
+mens$moyenne <- NULL
+mens <- merge(mens, moyennes, by = "origin")
+
+# une ligne par plage de mois consécutifs et complets : sans cela le trait
+# traverse août et septembre comme s'il y avait des données
+grille <- expand.grid(origin = unique(mens$origin), month = 1:12,
+                      stringsAsFactors = FALSE)
+grille <- merge(grille, mens[, c("origin", "month", "par_jour", "complet")],
+                by = c("origin", "month"), all.x = TRUE)
+grille <- grille[order(grille$origin, grille$month), ]
+grille$trace <- ifelse(!is.na(grille$par_jour) & grille$complet,
+                       grille$par_jour, NA_real_)
+grille$plage <- unlist(lapply(split(grille, grille$origin), function(d) {
+  ok <- !is.na(d$trace)
+  cumsum(c(TRUE, ok[-1] & !ok[-length(ok)]))
+}), use.names = FALSE)
+grille$plage[is.na(grille$trace)] <- NA
+
+p6 <- ggplot(grille, aes(month)) +
+  geom_hline(data = moyennes, aes(yintercept = moyenne), linetype = "dashed",
+             colour = SLATE, linewidth = 0.5) +
+  geom_line(aes(y = trace, colour = origin, group = plage), linewidth = 0.9,
+            na.rm = TRUE) +
+  geom_point(data = subset(grille, !is.na(par_jour)),
+             aes(y = par_jour, colour = origin, shape = complet),
+             size = 2.4, stroke = 1.1) +
+  geom_label(data = moyennes,
+             aes(x = 12, y = moyenne,
+                 label = sprintf("moyenne %s", format(round(moyenne), big.mark = " "))),
+             hjust = 1, vjust = -0.35, size = 3, colour = SLATE,
+             label.size = 0, fill = "white", label.padding = unit(0.12, "lines")) +
+  facet_wrap(~ origin, nrow = 1) +
+  scale_colour_manual(values = c(EWR = TEAL, JFK = NAVY, LGA = BLUE), guide = "none") +
+  scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1),
+                     labels = c(`TRUE` = "mois complet",
+                                `FALSE` = "mois incomplet (hors moyenne)"),
+                     name = NULL) +
+  scale_x_continuous(breaks = 1:12, labels = MOIS_AB) +
+  labs(title = "Trafic mensuel des trois aéroports, chacun face à sa moyenne",
+       subtitle = paste("Vols par jour observé — la pondération suggérée par l'énoncé, sans quoi février et juillet",
+                        "\nne sont pas comparables. Ligne pointillée : moyenne de l'aéroport sur les mois complets."),
+       x = "Mois", y = "Vols par jour",
+       caption = "Source : API /traffic/monthly et /traffic/daily — août et septembre sont absents du jeu de données") +
+  theme_adp() +
+  theme(legend.position = "top",
+        strip.text = element_text(face = "bold", size = 13))
+save_fig(p6, "06_facettes_mensuelles.png", w = 11, h = 5.2)
+
+# --- 7. prévision de trafic (Mission 3) ------------------------------------
+serie <- preparer_serie(daily, "flight_count")
+fit <- ajuster_modele(serie, log_scale = TRUE)
+v <- valider(serie, n_test = 28, log_scale = TRUE)
+futur <- predire(fit, seq(max(serie$date) + 1, by = "day", length.out = 30))
+ajuste <- predire(fit, serie$date)
+
+# preparer_serie() a déjà retiré les jours manquants : sans réindexation sur la
+# plage complète, la courbe relierait juillet à octobre en diagonale.
+plein <- data.frame(date = seq(min(serie$date), max(serie$date), by = "day"))
+plein <- merge(plein, serie[, c("date", "y")], by = "date", all.x = TRUE)
+ok <- !is.na(plein$y)
+plein$plage <- cumsum(c(TRUE, ok[-1] & !ok[-length(ok)]))
+plein$plage[!ok] <- NA
+obs <- plein[ok, , drop = FALSE]
+
+ajuste <- merge(plein[, c("date", "plage")], ajuste, by = "date")
+ajuste <- ajuste[!is.na(ajuste$plage), , drop = FALSE]
+
+p7 <- ggplot() +
+  geom_ribbon(data = futur, aes(date, ymin = bas, ymax = haut),
+              fill = RED, alpha = 0.15) +
+  geom_line(data = obs, aes(date, y, group = plage),
+            colour = NAVY, linewidth = 0.45) +
+  geom_line(data = ajuste, aes(date, prevision, group = plage),
+            colour = AMBER, linewidth = 0.45, linetype = "dotted") +
+  geom_line(data = futur, aes(date, prevision), colour = RED, linewidth = 0.8) +
+  geom_vline(xintercept = max(serie$date), linetype = "dotted", colour = SLATE) +
+  annotate("text", x = max(serie$date) + 16,
+           y = max(futur$haut, na.rm = TRUE),
+           label = "prévision 30 jours", colour = RED, size = 3.6,
+           vjust = -0.4, hjust = 0.5) +
+  annotate("text", x = as.Date("2013-08-16"), y = min(obs$y, na.rm = TRUE),
+           label = "aucune donnée", colour = SLATE, size = 3.2, vjust = 1.4) +
+  scale_x_date(date_labels = "%b", date_breaks = "2 months",
+               expand = expansion(mult = c(0.01, 0.06))) +
+  scale_y_continuous(labels = function(x) format(x, big.mark = " ")) +
+  labs(title = sprintf("Prévision du trafic journalier — %.1f %% d'erreur relative en validation",
+                       v$modele$mape),
+       subtitle = paste("Bleu : observé. Pointillé orange : le modèle rejoué sur l'historique.",
+                        "Rouge : prévision et intervalle à 90 %."),
+       x = NULL, y = "Vols par jour",
+       caption = "Tendance + effet du mois + effet du jour de la semaine + jours fériés") +
+  theme_adp()
+save_fig(p7, "07_prevision_trafic.png")
 
 cat("\nFigures générées dans", OUT, "\n")

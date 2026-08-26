@@ -45,6 +45,7 @@ ui <- bslib::page_navbar(
   bslib::nav_panel("Carte", mod_map_ui("map")),
   bslib::nav_panel("Météo", mod_weather_ui("weather")),
   bslib::nav_panel("Vols", mod_flights_ui("flights")),
+  bslib::nav_panel("Prévisions", mod_forecast_ui("forecast")),
 
   bslib::nav_panel(
     "Données & méthode",
@@ -80,6 +81,9 @@ ui <- bslib::page_navbar(
              <li>Honolulu (HNL) est écarté des classements de retard par
                  destination : distance atypique qui écrase les échelles.</li>
              <li>Températures converties de °F en °C pour l'affichage.</li>
+             <li><strong>Vitesse au sol</strong> : distance / temps de vol × 60.</li>
+             <li><strong>Prévision</strong> : tendance + effet du mois + effet du
+                 jour de la semaine, validée sur les 28 derniers jours connus.</li>
            </ul>"
         ))
       )
@@ -98,7 +102,10 @@ Fichiers (xlsx, json, html, pdf)
  API REST Plumber (R) — :8000
         │  JSON
         ▼
- Dashboard Shiny (ce site)</pre>
+ Dashboard Shiny (ce site)
+        │  régression sur la série journalière
+        ▼
+ Prévisions à 7–90 jours</pre>
          <p class='mb-0 text-body-secondary'>Le dashboard n'ouvre aucune
          connexion à la base : il n'interroge que l'API, ce qui permet de
          déployer les deux séparément.</p>"
@@ -127,6 +134,7 @@ server <- function(input, output, session) {
   mod_map_server("map")
   mod_weather_server("weather")
   mod_flights_server("flights")
+  mod_forecast_server("forecast")
 
   # État de l'API, rafraîchi toutes les 30 s
   health <- shiny::reactivePoll(

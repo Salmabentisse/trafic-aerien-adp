@@ -117,6 +117,70 @@ mod_delays_ui <- function(id) {
       ),
 
       bslib::nav_panel(
+        "Vitesse & courriers",
+        bslib::layout_column_wrap(
+          width = 1 / 4, fill = FALSE,
+          bslib::value_box(
+            title = "Vol le plus long", value = shiny::textOutput(ns("kpi_plus_long")),
+            showcase = shiny::icon("earth-americas"),
+            showcase_layout = "left center", theme = "primary"
+          ),
+          bslib::value_box(
+            title = "Vol le plus court", value = shiny::textOutput(ns("kpi_plus_court")),
+            showcase = shiny::icon("arrows-left-right-to-line"),
+            showcase_layout = "left center", theme = "secondary"
+          ),
+          bslib::value_box(
+            title = "Vitesse la plus élevée relevée",
+            value = shiny::textOutput(ns("kpi_vitesse_max")),
+            showcase = shiny::icon("gauge-high"),
+            showcase_layout = "left center", theme = "warning"
+          ),
+          bslib::value_box(
+            title = "Écart de vitesse moyen",
+            value = shiny::textOutput(ns("kpi_ecart_vitesse")),
+            showcase = shiny::icon("right-left"),
+            showcase_layout = "left center", theme = "success"
+          )
+        ),
+        bslib::layout_columns(
+          col_widths = c(5, 7), class = "mt-3",
+          bslib::card(
+            bslib::card_header("Vitesse selon le type de courrier"),
+            bslib::card_body(
+              hint("Vitesse au sol = distance / temps de vol × 60. Un long courrier vole nettement plus vite qu'une navette : la montée et la descente pèsent peu sur un vol long."),
+              plotly::plotlyOutput(ns("plot_vitesse"), height = "300px")
+            )
+          ),
+          bslib::card(
+            bslib::card_header("Distance et vitesse"),
+            bslib::card_body(
+              hint("Un point = un vol. Les deux nuages correspondent aux deux échantillons chargés."),
+              plotly::plotlyOutput(ns("plot_dist_vitesse"), height = "300px")
+            )
+          )
+        ),
+        bslib::layout_columns(
+          col_widths = c(6, 6), class = "mt-3",
+          bslib::card(
+            bslib::card_header("Long courrier — les vols les plus longs"),
+            bslib::card_body(DT::DTOutput(ns("table_long")))
+          ),
+          bslib::card(
+            bslib::card_header("Court courrier — les vols les plus courts"),
+            bslib::card_body(DT::DTOutput(ns("table_court")))
+          )
+        ),
+        bslib::card(
+          class = "mt-3",
+          bslib::card_body(
+            class = "py-2",
+            shiny::uiOutput(ns("note_methode"))
+          )
+        )
+      ),
+
+      bslib::nav_panel(
         "Vols extrêmes",
         bslib::layout_columns(
           col_widths = c(12),
@@ -358,6 +422,132 @@ mod_delays_server <- function(id) {
         ) |>
         adp_plotly(x_title = "Distance moyenne (miles)",
                    y_title = "Retard moyen à l'arrivée (min)", legend = TRUE)
+    })
+
+    # --- Vitesse et types de courrier (Mission 2, §3.2 Q7) -----------------
+    # Le tri par distance est fait par l'API (exact). La vitesse, elle, n'est pas
+    # un champ de la base : elle est calculée ici sur les vols chargés.
+    TAILLE_ECH <- 1000
+
+    charger_par_distance <- function(sens) {
+      pages <- ceiling(TAILLE_ECH / 500)
+      out <- NULL
+      for (pg in seq_len(pages)) {
+        res <- api_paginated("/flights", list(
+          page = pg, limit = 500, sort_by = "distance", sort_dir = sens
+        ))
+        if (nrow(res$data) == 0) break
+        out <- if (is.null(out)) res$data else rbind(out, res$data)
+        if (pg >= res$pages) break
+      }
+      out
+    }
+
+    courriers <- shiny::reactive({
+      longs <- charger_par_distance("desc")
+      courts <- charger_par_distance("asc")
+      need_rows(longs)
+      need_rows(courts)
+      prep <- function(d, type) {
+        d <- d[!is.na(d$air_time) & d$air_time > 0 & !is.na(d$distance), , drop = FALSE]
+        d$vitesse <- d$distance / d$air_time * 60
+        d$type <- type
+        d
+      }
+      list(
+        longs = prep(longs, "Long courrier"),
+        courts = prep(courts, "Court courrier")
+      )
+    })
+
+    output$kpi_plus_long <- shiny::renderText({
+      d <- courriers()$longs
+      d <- d[order(-d$distance), , drop = FALSE][1, ]
+      sprintf("%s mi — %s → %s", fmt_int(d$distance), d$origin, d$dest)
+    })
+
+    output$kpi_plus_court <- shiny::renderText({
+      d <- courriers()$courts
+      d <- d[order(d$distance), , drop = FALSE][1, ]
+      sprintf("%s mi — %s → %s", fmt_int(d$distance), d$origin, d$dest)
+    })
+
+    output$kpi_vitesse_max <- shiny::renderText({
+      d <- rbind(courriers()$longs, courriers()$courts)
+      i <- which.max(d$vitesse)
+      sprintf("%s mph — %s → %s", fmt_num(d$vitesse[i], 0), d$origin[i], d$dest[i])
+    })
+
+    output$kpi_ecart_vitesse <- shiny::renderText({
+      c1 <- courriers()
+      sprintf("%s mph", fmt_num(mean(c1$longs$vitesse, na.rm = TRUE) -
+                                 mean(c1$courts$vitesse, na.rm = TRUE), 0))
+    })
+
+    output$plot_vitesse <- plotly::renderPlotly({
+      c1 <- courriers()
+      plotly::plot_ly(type = "box") |>
+        plotly::add_trace(
+          y = c1$courts$vitesse, name = "Court courrier",
+          marker = list(color = ADP$sky), line = list(color = ADP$sky),
+          boxmean = TRUE
+        ) |>
+        plotly::add_trace(
+          y = c1$longs$vitesse, name = "Long courrier",
+          marker = list(color = ADP$navy), line = list(color = ADP$navy),
+          boxmean = TRUE
+        ) |>
+        adp_plotly(x_title = "", y_title = "Vitesse au sol (mph)", legend = FALSE)
+    })
+
+    output$plot_dist_vitesse <- plotly::renderPlotly({
+      c1 <- courriers()
+      d <- rbind(c1$longs, c1$courts)
+      plotly::plot_ly(
+        d, x = ~distance, y = ~vitesse, color = ~type,
+        colors = c("Court courrier" = ADP$sky, "Long courrier" = ADP$navy),
+        type = "scatter", mode = "markers",
+        marker = list(size = 6, opacity = 0.55,
+                      line = list(color = "#FFFFFF", width = 0.5)),
+        customdata = ~paste0(origin, " → ", dest, " · ", carrier,
+                             " · ", fmt_min(air_time, 0), " de vol"),
+        hovertemplate = paste0("<b>%{customdata}</b><br>%{x:,} miles",
+                               "<br>%{y:.0f} mph<extra></extra>")
+      ) |>
+        adp_plotly(x_title = "Distance (miles)", y_title = "Vitesse (mph)")
+    })
+
+    table_courrier <- function(d, decroissant) {
+      d <- d[order(if (decroissant) -d$distance else d$distance), , drop = FALSE]
+      d <- utils::head(d, 15)
+      data.frame(
+        Date = date_label(d),
+        Compagnie = d$carrier,
+        Trajet = paste(d$origin, "→", d$dest),
+        `Distance (mi)` = fmt_int(d$distance),
+        `Temps de vol` = fmt_min(d$air_time, 0),
+        `Vitesse (mph)` = fmt_num(d$vitesse, 0),
+        check.names = FALSE
+      )
+    }
+
+    output$table_long <- DT::renderDT(
+      adp_table(table_courrier(courriers()$longs, TRUE), page_length = 8))
+    output$table_court <- DT::renderDT(
+      adp_table(table_courrier(courriers()$courts, FALSE), page_length = 8))
+
+    output$note_methode <- shiny::renderUI({
+      c1 <- courriers()
+      hint(shiny::HTML(sprintf(
+        "<b>Méthode.</b> Le classement par distance est calculé par l'API
+         (<code>sort_by=distance</code>) : les extrêmes affichés sont donc exacts.
+         La vitesse n'existe pas en base, elle est calculée ici sur les
+         %s vols les plus longs et les %s les plus courts effectivement chargés.
+         Le vol le plus rapide de toute la table demanderait un tri SQL sur
+         <code>distance / air_time</code> — c'est ce que fait le script d'analyse,
+         l'API n'exposant pas ce tri.",
+        fmt_int(nrow(c1$longs)), fmt_int(nrow(c1$courts))
+      )))
     })
 
     output$table_most <- DT::renderDT({

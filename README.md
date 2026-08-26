@@ -172,6 +172,7 @@ trafic-aerien-adp/
     └── R/
         ├── api.R              # Client HTTP de l'API + normalisation JSON
         ├── utils_ui.R         # Thème bslib, palette, formatage FR
+        ├── mod_forecast.R     # Modèle de prévision (Mission 3)
         └── mod_*.R            # Un module Shiny par onglet
 ```
 
