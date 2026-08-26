@@ -10,3 +10,6 @@ backend/.Renviron
 
 # fichiers de verrouillage Office (deck ouvert dans PowerPoint)
 ~$*
+
+# sortie graphique par défaut créée par les scripts R
+Rplots.pdf
