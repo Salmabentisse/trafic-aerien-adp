@@ -140,7 +140,7 @@ mod_overview_server <- function(id) {
       plotly::plot_ly(
         df, y = ~dest, x = ~flight_count, type = "bar", orientation = "h",
         marker = list(color = ADP$blue),
-        text = ~fmt_int(flight_count), textposition = "auto",
+        text = ~fmt_int(flight_count), textposition = "auto", textangle = 0,
         hovertemplate = paste0("<b>%{y}</b><br>%{customdata}",
                               "<br>%{x:,} vols<extra></extra>"),
         customdata = ~name
@@ -160,7 +160,7 @@ mod_overview_server <- function(id) {
         df, x = ~type, y = ~n, type = "bar",
         marker = list(color = c(ADP$navy, ADP$sky)),
         text = ~paste0(fmt_int(n), "<br>", fmt_pct(pct)),
-        textposition = "auto",
+        textposition = "auto", textangle = 0,
         hovertemplate = "<b>%{x}</b><br>%{y:,} vols<extra></extra>"
       ) |>
         adp_plotly(x_title = "", y_title = "Nombre de vols", legend = FALSE)

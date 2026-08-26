@@ -93,7 +93,7 @@ mod_cancellations_server <- function(id) {
         df, x = ~label, y = ~cancelled_count, type = "bar",
         marker = list(color = ~cancelled_count, colorscale = "Reds",
                       showscale = FALSE),
-        text = ~fmt_int(cancelled_count), textposition = "auto",
+        text = ~fmt_int(cancelled_count), textposition = "auto", textangle = 0,
         hovertemplate = "<b>%{x}</b><br>%{y:,} annulations<extra></extra>"
       ) |>
         adp_plotly(x_title = "", y_title = "Vols annulés", legend = FALSE)
@@ -121,7 +121,7 @@ mod_cancellations_server <- function(id) {
       plotly::plot_ly(
         df, y = ~champ, x = ~pct, type = "bar", orientation = "h",
         marker = list(color = ADP$amber),
-        text = ~fmt_pct(pct, 2), textposition = "auto",
+        text = ~fmt_pct(pct, 2), textposition = "auto", textangle = 0,
         hovertemplate = "<b>%{y}</b><br>%{x:.2f} % de valeurs manquantes<extra></extra>"
       ) |>
         adp_plotly(x_title = "Valeurs manquantes (%)", y_title = "", legend = FALSE) |>
@@ -137,7 +137,7 @@ mod_cancellations_server <- function(id) {
       plotly::plot_ly(
         df, y = ~label, x = ~cancelled_count, type = "bar", orientation = "h",
         marker = list(color = ADP$red),
-        text = ~fmt_int(cancelled_count), textposition = "auto",
+        text = ~fmt_int(cancelled_count), textposition = "auto", textangle = 0,
         customdata = ~airline_name,
         hovertemplate = "<b>%{y}</b> — %{customdata}<br>%{x:,} annulations<extra></extra>"
       ) |>
@@ -153,7 +153,7 @@ mod_cancellations_server <- function(id) {
       plotly::plot_ly(
         df, y = ~label, x = ~cancelled_count, type = "bar", orientation = "h",
         marker = list(color = ADP$navy),
-        text = ~fmt_int(cancelled_count), textposition = "auto",
+        text = ~fmt_int(cancelled_count), textposition = "auto", textangle = 0,
         customdata = ~destination_name,
         hovertemplate = "<b>%{y}</b> — %{customdata}<br>%{x:,} annulations<extra></extra>"
       ) |>

@@ -25,14 +25,21 @@ mod_traffic_ui <- function(id) {
       bslib::card(
         bslib::card_header("Vols par mois"),
         bslib::card_body(
-          hint("Une courbe par aéroport de départ ; le creux de février tient au nombre de jours."),
+          shiny::radioButtons(
+            ns("mode"), NULL,
+            choices = c("Total du mois" = "total",
+                        "Moyenne par jour observé" = "par_jour"),
+            selected = "total", inline = TRUE
+          ),
+          shiny::uiOutput(ns("monthly_note")),
           plotly::plotlyOutput(ns("plot_monthly"), height = "320px")
         )
       ),
       bslib::card(
         bslib::card_header("Croissance mensuelle"),
         bslib::card_body(
-          hint("Variation du nombre de vols par rapport au mois précédent."),
+          hint("Variation par rapport au mois précédent, entre mois consécutifs et complets uniquement."),
+          shiny::uiOutput(ns("growth_note")),
           plotly::plotlyOutput(ns("plot_growth"), height = "320px")
         )
       )
@@ -52,6 +59,7 @@ mod_traffic_ui <- function(id) {
         bslib::card_header("Zoom sur une période"),
         bslib::card_body(
           shiny::selectInput(ns("period"), "Période", choices = PERIODS),
+          shiny::uiOutput(ns("period_note")),
           bslib::layout_column_wrap(
             width = 1 / 3, fill = FALSE,
             bslib::value_box(
@@ -99,42 +107,124 @@ mod_traffic_server <- function(id) {
       api_get("/traffic/monthly", list(origin = input$origin))
     })
 
+    # Nombre de jours réellement présents dans chaque mois. /traffic/monthly ne
+    # donne que le total mensuel : sans ce décompte, juillet (3 jours de données)
+    # se lit comme un effondrement du trafic.
+    couverture <- shiny::reactive({
+      d <- daily()
+      cle <- paste(d$year, d$month)
+      obs <- tapply(d$day, cle, function(x) length(unique(x)))
+      parts <- do.call(rbind, strsplit(names(obs), " ", fixed = TRUE))
+      out <- data.frame(
+        year = as.integer(parts[, 1]),
+        month = as.integer(parts[, 2]),
+        jours = as.integer(obs),
+        stringsAsFactors = FALSE
+      )
+      out$attendus <- jours_du_mois(out$year, out$month)
+      out$complet <- out$jours >= out$attendus
+      out[order(out$year, out$month), , drop = FALSE]
+    })
+
+    output$monthly_note <- shiny::renderUI({
+      cov <- couverture()
+      partiels <- cov[!cov$complet, , drop = FALSE]
+      if (nrow(partiels) == 0) return(NULL)
+      hint(sprintf(
+        "Mois incomplets, marqués par un point creux : %s. En « moyenne par jour observé », ils redeviennent comparables aux autres.",
+        paste(sprintf("%s (%d j sur %d)", month_label(partiels$month),
+                      partiels$jours, partiels$attendus), collapse = ", ")
+      ))
+    })
+
     output$plot_monthly <- plotly::renderPlotly({
       res <- monthly_res()
       api_guard(res)
       df <- records_to_df(res$data$monthly)
       need_rows(df)
-      df$label <- month_label(df$month)
+      cov <- couverture()
+      df <- merge(df, cov[, c("year", "month", "jours", "complet")],
+                  by = c("year", "month"), all.x = TRUE)
       df <- df[order(df$origin, df$month), , drop = FALSE]
+
+      par_jour <- identical(input$mode, "par_jour")
+      df$valeur <- if (par_jour) df$flight_count / df$jours else df$flight_count
 
       p <- plotly::plot_ly()
       for (o in unique(df$origin)) {
         d <- complete_months(df[df$origin == o, , drop = FALSE])
+        # point creux = mois incomplet, pour qu'un total partiel ne se lise pas
+        # comme une chute du trafic
+        symboles <- ifelse(is.na(d$complet) | d$complet, "circle", "circle-open")
         p <- plotly::add_trace(
-          p, x = d$month, y = d$flight_count, name = o,
+          p, x = d$month, y = d$valeur, name = o,
           type = "scatter", mode = "lines+markers", connectgaps = FALSE,
           line = list(color = origin_color(o), width = 2.5),
-          marker = list(color = origin_color(o), size = 6),
-          customdata = d$avg_daily_flights,
-          hovertemplate = paste0("<b>", o, "</b> — %{x}<br>%{y:,} vols",
-                                 "<br>%{customdata:.1f} vols/jour<extra></extra>")
+          marker = list(color = origin_color(o), size = 8, symbol = symboles,
+                        line = list(color = origin_color(o), width = 2)),
+          customdata = d$jours,
+          hovertemplate = paste0(
+            "<b>", o, "</b> — %{x}<br>",
+            if (par_jour) "%{y:,.0f} vols/jour" else "%{y:,} vols",
+            "<br>%{customdata} jours de données<extra></extra>")
         )
       }
       p |>
-        adp_plotly(x_title = "Mois", y_title = "Nombre de vols") |>
+        adp_plotly(x_title = "Mois",
+                   y_title = if (par_jour) "Vols par jour observé" else "Nombre de vols") |>
         plotly::layout(xaxis = list(
           tickmode = "array", tickvals = 1:12, ticktext = MONTHS_FR,
           gridcolor = ADP$grid
         ))
     })
 
-    output$plot_growth <- plotly::renderPlotly({
+    # L'API calcule la croissance avec un LAG sur les lignes présentes : octobre
+    # se retrouve comparé aux 3 jours de juillet, d'où des variations à +1 000 %.
+    # On recalcule en n'acceptant que deux mois consécutifs et tous deux complets.
+    croissance <- shiny::reactive({
       res <- monthly_res()
       api_guard(res)
-      df <- records_to_df(res$data$with_growth)
+      df <- records_to_df(res$data$monthly)
       need_rows(df)
-      df <- df[!is.na(df$growth_rate_pct), , drop = FALSE]
-      need_rows(df, "Pas assez de mois pour calculer une croissance.")
+      cov <- couverture()
+      df <- merge(df, cov[, c("year", "month", "complet")],
+                  by = c("year", "month"), all.x = TRUE)
+      df <- df[order(df$origin, df$year, df$month), , drop = FALSE]
+
+      out <- do.call(rbind, lapply(split(df, df$origin), function(d) {
+        if (nrow(d) < 2) return(NULL)
+        prec <- d[-nrow(d), , drop = FALSE]
+        suiv <- d[-1, , drop = FALSE]
+        ok <- (suiv$month - prec$month == 1) & prec$complet & suiv$complet
+        ok[is.na(ok)] <- FALSE
+        if (!any(ok)) return(NULL)
+        data.frame(
+          origin = suiv$origin[ok], month = suiv$month[ok],
+          taux = 100 * (suiv$flight_count[ok] - prec$flight_count[ok]) /
+            prec$flight_count[ok],
+          depuis = prec$month[ok],
+          stringsAsFactors = FALSE
+        )
+      }))
+      out
+    })
+
+    output$growth_note <- shiny::renderUI({
+      cov <- couverture()
+      partiels <- cov[!cov$complet, , drop = FALSE]
+      manquants <- setdiff(1:12, cov$month)
+      if (nrow(partiels) == 0 && length(manquants) == 0) return(NULL)
+      hint(sprintf(
+        "Transitions écartées : celles qui touchent un mois absent (%s) ou incomplet (%s). Les comparer donnerait des variations à plusieurs centaines de pour cent.",
+        if (length(manquants)) paste(month_label(manquants), collapse = ", ") else "aucun",
+        if (nrow(partiels)) paste(month_label(partiels$month), collapse = ", ") else "aucun"
+      ))
+    })
+
+    output$plot_growth <- plotly::renderPlotly({
+      df <- croissance()
+      need_rows(df, "Pas assez de mois consécutifs complets pour calculer une croissance.")
+      df$growth_rate_pct <- df$taux
       df$color <- ifelse(df$growth_rate_pct >= 0, ADP$teal, ADP$red)
       df <- df[order(df$origin, df$month), , drop = FALSE]
       df$label <- paste0(df$origin, " ", month_label(df$month))
@@ -142,7 +232,8 @@ mod_traffic_server <- function(id) {
       plotly::plot_ly(
         df, x = ~label, y = ~growth_rate_pct, type = "bar",
         marker = list(color = ~color),
-        hovertemplate = "<b>%{x}</b><br>%{y:+.2f} %<extra></extra>"
+        customdata = ~month_label(depuis),
+        hovertemplate = "<b>%{x}</b><br>%{y:+.2f} % vs %{customdata}<extra></extra>"
       ) |>
         adp_plotly(x_title = "", y_title = "Croissance (%)", legend = FALSE) |>
         plotly::layout(xaxis = list(
@@ -164,17 +255,23 @@ mod_traffic_server <- function(id) {
     output$coverage <- shiny::renderUI(hint(coverage_note(daily())))
 
     output$plot_daily <- plotly::renderPlotly({
-      df <- complete_days(daily())
+      df <- plages_contigues(complete_days(daily()), "flight_count")
+      need_rows(df)
 
-      plotly::plot_ly(
-        df, x = ~date, y = ~flight_count,
-        type = "scatter", mode = "lines", fill = "tozeroy",
-        connectgaps = FALSE,
-        line = list(color = ADP$navy, width = 1.5),
-        fillcolor = "rgba(29,138,193,0.18)",
-        hovertemplate = "<b>%{x|%d/%m/%Y}</b><br>%{y:,} vols<extra></extra>"
-      ) |>
-        adp_plotly(x_title = "", y_title = "Vols par jour", legend = FALSE)
+      p <- plotly::plot_ly()
+      for (pl in unique(df$plage)) {
+        d <- df[df$plage == pl, , drop = FALSE]
+        p <- plotly::add_trace(
+          p, x = d$date, y = d$flight_count,
+          type = "scatter", mode = "lines", fill = "tozeroy",
+          line = list(color = ADP$navy, width = 1.5),
+          fillcolor = "rgba(29,138,193,0.18)", showlegend = FALSE,
+          hovertemplate = "<b>%{x|%d/%m/%Y}</b><br>%{y:,} vols<extra></extra>"
+        )
+      }
+      p |>
+        adp_plotly(x_title = "", y_title = "Vols par jour", legend = FALSE) |>
+        plotly::layout(xaxis = axe_mois_fr(df$date))
     })
 
     period_res <- shiny::reactive({
@@ -186,6 +283,28 @@ mod_traffic_server <- function(id) {
       res <- period_res()
       api_guard(res)
       object_to_list(res$data$summary)
+    })
+
+    # Une période qui recouvre les mois absents (l'été, notamment) donne un total
+    # qui n'a pas de sens sans cet avertissement.
+    output$period_note <- shiny::renderUI({
+      mois <- PERIOD_MONTHS[[input$period %||% ""]]
+      if (is.null(mois)) return(NULL)
+      cov <- couverture()
+      absents <- setdiff(mois, cov$month)
+      partiels <- intersect(mois, cov$month[!cov$complet])
+      if (length(absents) == 0 && length(partiels) == 0) return(NULL)
+      shiny::div(
+        class = "alert alert-warning py-2 px-3 small mb-2",
+        sprintf(
+          "Attention : cette période recouvre %s%s%s. Le total ci-dessous ne couvre donc qu'une fraction de la période.",
+          if (length(absents)) sprintf("des mois absents du jeu de données (%s)",
+                                       paste(month_label(absents), collapse = ", ")) else "",
+          if (length(absents) && length(partiels)) " et " else "",
+          if (length(partiels)) sprintf("un mois incomplet (%s)",
+                                        paste(month_label(partiels), collapse = ", ")) else ""
+        )
+      )
     })
 
     output$kpi_period_flights <- shiny::renderText(fmt_int(period_summary()$flight_count))
@@ -202,7 +321,7 @@ mod_traffic_server <- function(id) {
       plotly::plot_ly(
         df, x = ~origin, y = ~flight_count, type = "bar",
         marker = list(color = origin_color(df$origin)),
-        text = ~fmt_int(flight_count), textposition = "auto",
+        text = ~fmt_int(flight_count), textposition = "auto", textangle = 0,
         hovertemplate = "<b>%{x}</b><br>%{y:,} vols<extra></extra>"
       ) |>
         adp_plotly(x_title = "", y_title = "Vols", legend = FALSE)
@@ -241,7 +360,7 @@ mod_traffic_server <- function(id) {
         df, x = ~nom, y = ~avg_flights, type = "bar",
         name = "Vols ce jour-là",
         marker = list(color = ifelse(df$diff_vs_avg >= 0, ADP$teal, ADP$red)),
-        text = ~fmt_int(avg_flights), textposition = "auto",
+        text = ~fmt_int(avg_flights), textposition = "auto", textangle = 0,
         customdata = ~diff_vs_avg,
         hovertemplate = paste0("<b>%{x}</b><br>%{y:,.0f} vols",
                                "<br>écart : %{customdata:+.0f}<extra></extra>")

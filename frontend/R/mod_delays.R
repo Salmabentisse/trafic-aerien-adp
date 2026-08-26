@@ -195,7 +195,8 @@ mod_delays_server <- function(id) {
           line = list(color = ADP$slate, dash = "dot", width = 1.5),
           hoverinfo = "skip"
         ) |>
-        adp_plotly(x_title = "", y_title = "Retard moyen au départ (min)")
+        adp_plotly(x_title = "", y_title = "Retard moyen au départ (min)") |>
+        plotly::layout(xaxis = axe_mois_fr(df$date))
     })
 
     output$plot_hour <- plotly::renderPlotly({
@@ -263,7 +264,7 @@ mod_delays_server <- function(id) {
         df, y = ~label, x = ~delay_rate_pct, type = "bar", orientation = "h",
         marker = list(color = ~delay_rate_pct, colorscale = SCALE_YELLOW_RED,
                       showscale = FALSE),
-        text = ~fmt_pct(delay_rate_pct), textposition = "auto",
+        text = ~fmt_pct(delay_rate_pct), textposition = "auto", textangle = 0,
         customdata = ~total_flights,
         hovertemplate = paste0("<b>%{y}</b><br>%{x:.2f} % de vols en retard",
                                "<br>%{customdata:,} vols<extra></extra>")
@@ -296,7 +297,7 @@ mod_delays_server <- function(id) {
       plotly::plot_ly(
         df, x = ~origin, y = ~avg_dep_delay, type = "bar", name = "Départ",
         marker = list(color = ADP$navy),
-        text = ~fmt_min(avg_dep_delay), textposition = "auto",
+        text = ~fmt_min(avg_dep_delay), textposition = "auto", textangle = 0,
         customdata = ~total_flights,
         hovertemplate = paste0("<b>%{x}</b><br>%{y:.2f} min au départ",
                                "<br>%{customdata:,} vols<extra></extra>")
@@ -304,7 +305,7 @@ mod_delays_server <- function(id) {
         plotly::add_trace(
           y = ~avg_arr_delay, name = "Arrivée",
           marker = list(color = ADP$sky),
-          text = ~fmt_min(avg_arr_delay),
+          text = ~fmt_min(avg_arr_delay), textangle = 0,
           hovertemplate = "<b>%{x}</b><br>%{y:.2f} min à l'arrivée<extra></extra>"
         ) |>
         adp_plotly(x_title = "", y_title = "Retard moyen (min)") |>
@@ -320,7 +321,7 @@ mod_delays_server <- function(id) {
       plotly::plot_ly(
         df, y = ~label, x = ~avg_arr_delay, type = "bar", orientation = "h",
         marker = list(color = ADP$red),
-        text = ~fmt_min(avg_arr_delay), textposition = "auto",
+        text = ~fmt_min(avg_arr_delay), textposition = "auto", textangle = 0,
         customdata = ~paste0(destination_name, " — ", fmt_int(total_flights), " vols"),
         hovertemplate = "<b>%{y}</b><br>%{customdata}<br>%{x:.2f} min<extra></extra>"
       ) |>

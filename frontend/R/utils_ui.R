@@ -42,6 +42,14 @@ PERIODS <- c(
   "Tous les jours fériés"       = "special_days"
 )
 
+# Mois couverts par chaque période, pour avertir quand la sélection tombe dans
+# une zone sans données
+PERIOD_MONTHS <- list(
+  january = 1L, november_december = c(11L, 12L), summer = c(7L, 8L, 9L),
+  christmas = 12L, new_year = 1L, independence = 7L, thanksgiving = 11L,
+  overnight = 1:12, special_days = c(1L, 7L, 11L, 12L)
+)
+
 SPECIAL_DAY_LABELS <- c(
   new_year     = "Nouvel An",
   independence = "Independence Day",
@@ -160,8 +168,6 @@ adp_plotly <- function(p, x_title = "", y_title = "", legend = TRUE,
     # masque les étiquettes qui ne tiennent pas plutôt que de les rétrécir
     uniformtext = list(minsize = 9, mode = "hide")
   )
-  # sans cela, plotly pivote les étiquettes à la verticale dans les barres étroites
-  p <- suppressWarnings(plotly::style(p, textangle = 0))
   plotly::config(p, displayModeBar = FALSE, locale = "fr")
 }
 
@@ -252,4 +258,47 @@ coverage_note <- function(df) {
                                     collapse = ", ")))
   }
   paste(txt, "Les courbes laissent ces périodes vides plutôt que de les relier.")
+}
+
+#' Nombre de jours du mois (y, m)
+jours_du_mois <- function(y, m) {
+  vapply(seq_along(m), function(i) {
+    debut <- as.Date(sprintf("%04d-%02d-01", as.integer(y[i]), as.integer(m[i])))
+    as.integer(format(seq(debut, by = "month", length.out = 2)[2] - 1, "%d"))
+  }, integer(1))
+}
+
+#' Découpe une série journalière en plages contiguës de jours renseignés.
+#' `fill = "tozeroy"` de plotly relie les deux bords d'un trou : il faut une
+#' trace par plage pour que le remplissage s'interrompe vraiment.
+plages_contigues <- function(df, value_col) {
+  present <- !is.na(df[[value_col]])
+  if (!any(present)) return(df[0, , drop = FALSE])
+  df$plage <- cumsum(c(TRUE, present[-1] & !present[-length(present)]))
+  df[present, , drop = FALSE]
+}
+
+#' Graduations mensuelles en français pour un axe de dates
+#' (le locale plotly ne francise pas les abréviations de mois de façon fiable)
+axe_mois_fr <- function(dates) {
+  dates <- dates[!is.na(dates)]
+  if (!length(dates)) return(NULL)
+  debuts <- seq(as.Date(format(min(dates), "%Y-%m-01")), max(dates), by = "month")
+  list(
+    tickmode = "array",
+    tickvals = as.character(debuts),
+    ticktext = paste(MONTHS_FR[as.integer(format(debuts, "%m"))],
+                     format(debuts, "%Y")),
+    gridcolor = ADP$grid
+  )
+}
+
+#' Graduations mensuelles françaises, seulement si la période le justifie
+#' (sur quelques jours, des graduations mensuelles n'apporteraient rien)
+axe_temps_fr <- function(ts, seuil_jours = 45) {
+  ts <- ts[!is.na(ts)]
+  if (!length(ts)) return(NULL)
+  etendue <- as.numeric(difftime(max(ts), min(ts), units = "days"))
+  if (etendue < seuil_jours) return(list(gridcolor = ADP$grid))
+  axe_mois_fr(as.Date(ts))
 }
