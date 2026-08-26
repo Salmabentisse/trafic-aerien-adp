@@ -91,7 +91,7 @@ p2 <- ggplot(subset(full, present), aes(date, flight_count, group = plage)) +
            colour = RED, size = 3.6, lineheight = 1) +
   scale_x_date(date_labels = "%b", date_breaks = "1 month") +
   labs(title = "Le jeu de données ne couvre que 276 jours sur 365",
-       subtitle = "Vols par jour, trois aéroports confondus — le creux hebdomadaire correspond aux dimanches",
+       subtitle = "Vols par jour, trois aéroports confondus — le creux hebdomadaire tombe le samedi (calendrier 2013, celui du rythme réel des données)",
        x = NULL, y = "Vols par jour",
        caption = "Source : API /traffic/daily — flights.xlsx contient 252 704 vols, l'énoncé en cite 326 776") +
   theme_adp()
@@ -167,7 +167,10 @@ save_fig(p5, "05_annulations_mensuelles.png")
 # --- 6. viz par facette demandée par l'énoncé (Mission 2, §3.1 Q2) ----------
 # On réutilise les helpers du dashboard pour que le support et l'application
 # racontent exactement la même chose.
-source(file.path(root, "frontend", "R", "mod_forecast.R"))
+# utils_ui.R porte les constantes de calendrier, mod_forecast.R le modèle
+for (f in c("utils_ui.R", "mod_forecast.R")) {
+  source(file.path(root, "frontend", "R", f))
+}
 
 MOIS_AB <- c("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
 
