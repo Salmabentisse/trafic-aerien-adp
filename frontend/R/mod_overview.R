@@ -79,7 +79,7 @@ mod_overview_ui <- function(id) {
       bslib::card(
         bslib::card_header("Semaine vs week-end"),
         bslib::card_body(
-          hint("Le trafic d'affaires concentre les vols en semaine."),
+          shiny::uiOutput(ns("note_semaine")),
           plotly::plotlyOutput(ns("plot_week"), height = "280px")
         )
       ),
@@ -100,7 +100,28 @@ mod_overview_server <- function(id) {
     overview <- shiny::reactive(api_obj("/stats/overview"))
     delays <- shiny::reactive(api_obj("/delays/summary"))
     top_airports <- shiny::reactive(api_get("/traffic/top-airports", list(limit = 10)))
-    week <- shiny::reactive(api_obj("/traffic/weekday-vs-weekend"))
+    # /traffic/weekday-vs-weekend applique DAYOFWEEK à la date stockée, dont
+    # l'année (2021) ne correspond pas au rythme réel des données : le calcul
+    # attribue au week-end des jours de semaine et conclut à l'inverse de la
+    # réalité. On recalcule depuis le détail journalier, calendrier corrigé, et
+    # en vols par jour — comparer 5 jours à 2 sur des totaux bruts n'aurait pas
+    # de sens.
+    semaine <- shiny::reactive({
+      page <- api_paginated("/traffic/daily", list(page = 1, limit = 366))
+      df <- page$data
+      need_rows(df)
+      df$date <- as.Date(sprintf("%04d-%02d-%02d", df$year, df$month, df$day))
+      weekend <- jour_semaine_reel(df$date) >= 6
+      out <- data.frame(
+        type = c("Semaine", "Week-end"),
+        jours = c(sum(!weekend), sum(weekend)),
+        vols = c(sum(df$flight_count[!weekend]), sum(df$flight_count[weekend])),
+        stringsAsFactors = FALSE
+      )
+      out$par_jour <- out$vols / out$jours
+      out$part <- 100 * out$vols / sum(out$vols)
+      out
+    })
 
     output$kpi_flights   <- shiny::renderText(fmt_int(overview()$flights))
     output$kpi_dest      <- shiny::renderText(fmt_int(overview()$destinations))
@@ -148,22 +169,28 @@ mod_overview_server <- function(id) {
         adp_plotly(x_title = "Nombre de vols", y_title = "", legend = FALSE)
     })
 
+    output$note_semaine <- shiny::renderUI({
+      d <- semaine()
+      ecart <- 100 * (d$par_jour[2] / d$par_jour[1] - 1)
+      hint(sprintf(
+        "En vols par jour, pour comparer %s jours de semaine à %s jours de week-end. Le week-end est %s moins chargé.",
+        fmt_int(d$jours[1]), fmt_int(d$jours[2]), fmt_pct(abs(ecart))
+      ))
+    })
+
     output$plot_week <- plotly::renderPlotly({
-      w <- week()
-      shiny::validate(shiny::need(length(w) > 0, "Données indisponibles."))
-      df <- data.frame(
-        type = c("Semaine", "Week-end"),
-        n = c(as.numeric(w$weekday_flights), as.numeric(w$weekend_flights)),
-        pct = c(as.numeric(w$weekday_pct), as.numeric(w$weekend_pct))
-      )
+      df <- semaine()
+      need_rows(df)
       plotly::plot_ly(
-        df, x = ~type, y = ~n, type = "bar",
+        df, x = ~type, y = ~par_jour, type = "bar",
         marker = list(color = c(ADP$navy, ADP$sky)),
-        text = ~paste0(fmt_int(n), "<br>", fmt_pct(pct)),
+        text = ~paste0(fmt_num(par_jour, 0), " vols/jour"),
         textposition = "auto", textangle = 0,
-        hovertemplate = "<b>%{x}</b><br>%{y:,} vols<extra></extra>"
+        customdata = ~paste0(fmt_int(vols), " vols sur ", fmt_int(jours),
+                             " jours — ", fmt_pct(part), " du total"),
+        hovertemplate = "<b>%{x}</b><br>%{y:,.0f} vols par jour<br>%{customdata}<extra></extra>"
       ) |>
-        adp_plotly(x_title = "", y_title = "Nombre de vols", legend = FALSE)
+        adp_plotly(x_title = "", y_title = "Vols par jour", legend = FALSE)
     })
 
     output$table_routes <- DT::renderDT({

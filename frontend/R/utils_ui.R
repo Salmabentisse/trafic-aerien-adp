@@ -302,3 +302,24 @@ axe_temps_fr <- function(ts, seuil_jours = 45) {
   if (etendue < seuil_jours) return(list(gridcolor = ADP$grid))
   axe_mois_fr(as.Date(ts))
 }
+
+# --- calendrier réel du jeu de données --------------------------------------
+# La colonne `year` de la base vaut 2021, mais le rythme hebdomadaire ne colle
+# qu'à 2013 : sous ce calendrier le jour creux tombe exactement sur le samedi
+# (741 vols/jour contre plus de 940 en semaine), alors qu'en 2021 il tomberait un
+# mardi. Toute lecture qui dépend du jour de la semaine doit passer par ces
+# helpers, sinon l'effet du samedi est attribué au mardi.
+ANNEE_CALENDRIER <- 2013L
+
+JOURS_FR <- c("lundi", "mardi", "mercredi", "jeudi",
+              "vendredi", "samedi", "dimanche")
+
+#' Ramène une date stockée au calendrier de référence
+date_calendrier <- function(dates) {
+  as.Date(sprintf("%d-%s", ANNEE_CALENDRIER, format(dates, "%m-%d")))
+}
+
+#' Jour de la semaine réel (1 = lundi) d'une date stockée
+jour_semaine_reel <- function(dates) {
+  as.integer(format(date_calendrier(dates), "%u"))
+}

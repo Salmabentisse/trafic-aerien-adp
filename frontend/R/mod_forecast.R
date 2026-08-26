@@ -14,16 +14,7 @@
 HORIZONS <- c("7 jours" = "7", "14 jours" = "14", "30 jours" = "30",
               "60 jours" = "60", "90 jours" = "90")
 
-JOURS_FR <- c("lundi", "mardi", "mercredi", "jeudi",
-              "vendredi", "samedi", "dimanche")
-
-# La colonne `year` de la base vaut 2021, mais le cycle hebdomadaire ne colle
-# qu'au calendrier 2013 : le jour creux tombe alors exactement sur le samedi
-# (741 vols/jour contre 940 et plus en semaine), alors qu'avec 2021 il tomberait
-# un mardi. Les données sont donc celles de 2013 (jeu de référence nycflights13)
-# avec l'année réécrite. On nomme les jours d'après ce calendrier, sinon tout le
-# rythme hebdomadaire est décalé de trois jours.
-ANNEE_CALENDRIER <- 2013L
+# ANNEE_CALENDRIER et JOURS_FR sont définis dans utils_ui.R.
 
 #' Jour de la semaine (1 = lundi). Les dates de cet onglet étant déjà ramenées
 #' au calendrier de référence, la lecture directe suffit.
