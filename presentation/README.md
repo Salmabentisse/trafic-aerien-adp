@@ -68,7 +68,7 @@ Deux ou trois slides par personne, pour qu'aucun bloc ne traîne.
 
 | # | Slide | Qui |
 |---|---|---|
-| 11 | Un dashboard en neuf onglets, branché sur l'API | **Marcus** — démonstration live ici |
+| 11 | Un dashboard en neuf onglets, branché sur l'API | **Hedi** — démonstration live |
 | 12 | Prévoir le trafic à 30 jours, avec 7,3 % d'erreur | **Marcus** |
 | 13 | Construire les écrans a révélé deux défauts, et le lancement | **Marcus** |
 
@@ -78,12 +78,22 @@ Deux ou trois slides par personne, pour qu'aucun bloc ne traîne.
 |---|---|---|
 | Salma | 1, 2, 3 | 3 |
 | Meissa | 4, 5 | 2 |
-| Hedi | 6, 7 | 2 |
+| Hedi | 6, 7, 11 | 3 |
 | Hassan | 8, 9, 10 | 3 |
-| Marcus | 11, 12, 13 | 3 |
+| Marcus | 12, 13 | 2 |
 
 C'est **Salma qui ouvre** la soutenance, la slide 2 servant de passage de relais :
 elle annonce le pipeline et qui parle de quoi.
+
+La **démonstration live du dashboard est portée par Hedi**, sur la slide 11 : c'est
+son API que l'application interroge, donc c'est lui qui peut répondre si le jury
+demande d'où sort un chiffre affiché. Parcours conseillé, trois minutes : l'onglet
+Vols pour montrer que filtres, tri et pagination sont exécutés côté API, la Carte
+pour l'interactivité, puis il passe la main à Marcus sur les prévisions.
+
+Les deux captures de la slide 11 servent de **repli** : si l'application ne démarre
+pas le jour J, la présentation se fait sur les images sans rien changer au
+discours. À faire tourner une fois avant la soutenance.
 
 ### Deux points à valider avec leurs auteurs
 
