@@ -193,10 +193,20 @@ ggsave("figures/trafic_mensuel_croissance.png", width = 10, height = 5)
 # -----------------------------------------------------------------
 # GRAPHIQUE 4 : Weekend vs Jours ouvres (moyenne par jour, corrige)
 # -----------------------------------------------------------------
+# La colonne year de la base vaut 2021, mais le rythme hebdomadaire des donnees
+# est celui de 2013 : sous ce calendrier le jour creux tombe exactement sur le
+# samedi (741 vols/jour contre plus de 940 en semaine), alors qu'en 2021 il
+# tomberait un mardi. Appeler wday() sur la date stockee decale donc les jours de
+# trois rangs et compte les mercredis et jeudis reels comme du week-end, ce qui
+# fait ressortir a tort le week-end comme plus charge que la semaine.
+ANNEE_REFERENCE <- 2013
+
 trafic_semaine <- flights %>%
   mutate(
     date       = as_date(sched_dep_time_dt),
-    is_weekend = wday(sched_dep_time_dt) %in% c(1, 7),
+    date_ref   = as_date(sprintf("%d-%02d-%02d", ANNEE_REFERENCE,
+                                 month(date), day(date))),
+    is_weekend = wday(date_ref) %in% c(1, 7),
     type       = ifelse(is_weekend, "Weekend", "Jours ouvres")
   ) %>%
   group_by(type, date) %>%
@@ -210,7 +220,7 @@ ggplot(trafic_semaine, aes(x = type, y = moyenne_par_jour, fill = type)) +
             vjust = -0.5, size = 5, fontface = "bold") +
   scale_fill_manual(values = c("Jours ouvres" = "#E74C3C", "Weekend" = "#1ABC9C")) +
   labs(title = "Trafic moyen par jour : Weekend vs Jours ouvres",
-       subtitle = "Moyenne du nombre de vols par jour",
+       subtitle = "Moyenne par jour, calendrier 2013 (celui du rythme reel des donnees)",
        x = "", y = "Vols moyens par jour") +
   theme_minimal() +
   ylim(0, max(trafic_semaine$moyenne_par_jour) * 1.15)
